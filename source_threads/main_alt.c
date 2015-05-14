@@ -13,10 +13,8 @@ int main(int argc, char** argv)
   init_fftw(&ctrl, &wrk);
   save_ascii(&ctrl, &wrk, "data.txt");
 
-  if (ctrl.n_order==4) {
-	evolve_rk4_threads();
-  }
-  else err_msg("Method order unknown. Currently only Runge-Kutta 4 is supported.");
+  
+  evolve_rk_threads();
 
   //proc_one_serial(&ctrl, &wrk);
   

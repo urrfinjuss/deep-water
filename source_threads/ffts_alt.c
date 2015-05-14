@@ -11,12 +11,37 @@ static int wflag, benchflag;
 static int n_order;
 static params_ptr pms;
 static work_ptr arr;
-static double dt;
+static double lq, lv;
 static struct control current;
 static pthread_barrier_t wbar;
 static pthread_mutex_t tmut;
-static long int nsteps;
+//static long int nsteps;
 
+
+double ref_criterion(fftw_complex *in) {
+	int win = 5;	
+	double qmax = 0;
+	double qmin = 0;
+	for (int j = 0; j < win; j++) {
+	  qmax += cabs(in[(pms->n)-j-1]);
+	  qmin += cabs(in[(pms->n)/2+j]);
+	}
+	return log10(qmax/qmin);
+}
+
+
+void restore_surface(char *fname1, char *fname2) {
+	for (int j = 0; j < pms->n; j++) aux[1][j] = cpow(arr->Q[j],-2);
+	fftw_execute(fwd_dft1);
+	for (int j = 1; j < pms->n; j++) aux[1][j] = -1.I*aux[1][j]/(pms->n)/k[j];	
+	aux[1][0] = 0.;
+	for (int j = 1; j < (pms->n)/2; j++) aux[2][j] = 0.5I*conj(aux[1][(pms->n)-j]); // aux[1][j] = 0!!
+	for (int j = (pms->n)/2-1; j > 0; j--) aux[1][0] += - 2.I*fabs(k[j])*cabs(aux[2][j])*cabs(aux[2][j]);
+	save_fourier(pms, aux[1], fname2);
+	fftw_execute(bwd_dft1);
+	save_array(pms, aux[1], fname1);
+	//memcpy(Z, aux[1], sizeof(fftw_complex)*(pms->n));
+}
 
 void bench_rk4() {
 /* 
@@ -24,10 +49,10 @@ void bench_rk4() {
    	Runge-Kutta 4 iterations. Number of threads for DFT are given by $nthreads
    	input parameter 
 */
-	memcpy(rhq[pms->n_order], arr->Q, sizeof(fftw_complex)*(pms->n));
-	memcpy(rhv[pms->n_order], arr->V, sizeof(fftw_complex)*(pms->n));
+	memcpy(aux[3], arr->Q, sizeof(fftw_complex)*(pms->n));
+	memcpy(aux[3], arr->V, sizeof(fftw_complex)*(pms->n));
 	struct timespec start, finish;
-      	double elapsed_serial, elapsed_threads;
+      	double elapsed_serial, elapsed_threads, elapsed_threads_6;
 
 	bench_fft(pms, arr);
 	printf("Running serial RK4 ... ");
@@ -39,53 +64,58 @@ void bench_rk4() {
 	elapsed_serial += (finish.tv_nsec - start.tv_nsec) / 1000000000.0;
 	printf("Complete\nRunning threaded RK4 ... ");
 
-	memcpy(arr->Q, rhq[pms->n_order], sizeof(fftw_complex)*(pms->n));	
-	memcpy(arr->V, rhv[pms->n_order], sizeof(fftw_complex)*(pms->n));
+	memcpy(arr->Q, aux[3], sizeof(fftw_complex)*(pms->n));	
+	memcpy(arr->V, aux[3], sizeof(fftw_complex)*(pms->n));
 
+	pms->n_order = 4;
 	clock_gettime(CLOCK_MONOTONIC, &start);
-	evolve_rk4_threads();
+	evolve_rk_threads();
 	clock_gettime(CLOCK_MONOTONIC, &finish);
 	elapsed_threads = (finish.tv_sec - start.tv_sec);
 	elapsed_threads += (finish.tv_nsec - start.tv_nsec) / 1000000000.0;
+	printf("Complete\nRunning threaded RK4 ... ");
+
+	memcpy(arr->Q, aux[3], sizeof(fftw_complex)*(pms->n));	
+	memcpy(arr->V, aux[3], sizeof(fftw_complex)*(pms->n));
+
+	pms->n_order = 6;
+	clock_gettime(CLOCK_MONOTONIC, &start);
+	evolve_rk_threads();
+	clock_gettime(CLOCK_MONOTONIC, &finish);
+	elapsed_threads_6 = (finish.tv_sec - start.tv_sec);
+	elapsed_threads_6 += (finish.tv_nsec - start.tv_nsec) / 1000000000.0;
 
 	printf("Complete\n\n");
 	printf("Benchmark results:\n");
 	printf("Serial RK4: %.8f s \n", elapsed_serial);
 	printf("Threaded RK4: %.8f s \n", elapsed_threads);
+	printf("Threaded RK6: %.8f s \n", elapsed_threads_6);
 
 }
 
-void evolve_rk4_threads(){
+void evolve_rk_threads(){
 	void *status;
-
 	pthread_t tid[2];
 	pthread_attr_t attr;
-
 	pthread_attr_init(&attr);
 	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
 	pthread_barrier_init(&wbar, NULL, 2);	
-	//pthread_mutex_init(&tmut, NULL);
-
-
-	current.T = 0; 
-	pthread_create(&tid[0], &attr, &pthread_id0, NULL);
-	pthread_create(&tid[1], &attr, &pthread_id1, NULL);
-
-
+	if ((pms->n_order) == 4) {
+		pthread_create(&tid[0], &attr, &pthread_id0, NULL);
+		pthread_create(&tid[1], &attr, &pthread_id1, NULL);
+	} else if ((pms->n_order) == 6) {
+		pthread_create(&tid[0], &attr, &pthread_id0_rk6, NULL);
+		pthread_create(&tid[1], &attr, &pthread_id1_rk6, NULL);
+	} else err_msg("Method order unknown. Currently only Runge-Kutta 4 and 6 are supported.");
 	pthread_join(tid[0], NULL);
 	pthread_join(tid[1], NULL);
 	pthread_barrier_destroy(&wbar);
-	//pthread_mutex_destroy(&tmut);
-	/*save_array(pms, arr->V, "Vt.txt");
-	save_array(pms, dV, "dVt.txt");
-	save_array(pms, arr->Q,  "Qt.txt");
-	save_array(pms, dQ,"dQt.txt");
-	save_array(pms, B,  "Bt.txt");
-	save_array(pms, U,  "Ut.txt");
-	save_array(pms, dU,"dUt.txt");*/
+
 }
 
 void prepare_id0() {
+	// thread zero does 4 DFTs, 
+	// processes dQ, B with surface tension
         memcpy(aux[0], arr->Q, sizeof(fftw_complex)*(pms->n));
         fftw_execute(fwd_dft0);
 	for (int j = 0; j < pms->n; j++) {
@@ -105,7 +135,9 @@ void prepare_id0() {
 	memcpy(B, aux[0], sizeof(fftw_complex)*(pms->n));
 
 }
-void prepare_id1() {
+void prepare_id1() {  	
+	// thread one does 5 DFTs, 
+	// processes dV, U and dU
         memcpy(aux[1], arr->V, sizeof(fftw_complex)*(pms->n));
         fftw_execute(fwd_dft1);
 	for (int j = 0; j < pms->n; j++) {
@@ -129,40 +161,182 @@ void prepare_id1() {
 
 }
 
-void * pthread_id0(void *arg) {
+
+//---------------------  Runge Kutta 6
+
+void * pthread_id0_rk6(void *arg) {
 	long int mm = 0;
-	// thread zero does 4 DFTs, 
-	// processes dQ, B with surface tension
+	// process arrays for Q in RK6
+	pthread_barrier_wait(&wbar); // 1
+	while (mm < pms->max_steps) {
+	  memcpy(Q0, arr->Q, sizeof(fftw_complex)*(pms->n));
+	  pthread_barrier_wait(&wbar);  //2
+	  prepare_id0();
+	  pthread_barrier_wait(&wbar);  //3
+  	  for (int j = 0; j < pms->n; j++) rhq[0][j] = 0.5I*(2*dQ[j]*U[j] - arr->Q[j]*dU[j]);
+	  pthread_barrier_wait(&wbar);  //4
+  	  for (int j = 0; j < pms->n; j++) arr->Q[j] = Q0[j] + ((pms->dt)/3.)*rhq[0][j];
+	  pthread_barrier_wait(&wbar);  //5 
+	  prepare_id0();
+	  pthread_barrier_wait(&wbar);  //6
+	  for (int j = 0; j < pms->n; j++) rhq[1][j] = 0.5I*(2*dQ[j]*U[j] - arr->Q[j]*dU[j]);
+	  pthread_barrier_wait(&wbar);  //7
+	  for (int j = 0; j < pms->n; j++) arr->Q[j] = Q0[j] + (2.*(pms->dt)/3.)*rhq[1][j];
+	  pthread_barrier_wait(&wbar);  //8
+	  prepare_id0();
+	  pthread_barrier_wait(&wbar);  //9
+	  for (int j = 0; j < pms->n; j++) rhq[2][j] = 0.5I*(2*dQ[j]*U[j] - arr->Q[j]*dU[j]);
+	  pthread_barrier_wait(&wbar);  //10
+	  for (int j = 0; j < pms->n; j++) arr->Q[j] = Q0[j] + ((pms->dt)/12.)*(rhq[0][j]+4.*rhq[1][j]-rhq[2][j]);
+	  pthread_barrier_wait(&wbar);  //11
+	  prepare_id0();
+	  pthread_barrier_wait(&wbar);  //12
+	  for (int j = 0; j < pms->n; j++) rhq[3][j] = 0.5I*(2*dQ[j]*U[j] - arr->Q[j]*dU[j]);
+	  pthread_barrier_wait(&wbar);  //13
+	  for (int j = 0; j < pms->n; j++) arr->Q[j] = Q0[j] + ((pms->dt)/16.)*(-rhq[0][j]+18.*rhq[1][j]-3.*rhq[2][j]-6.*rhq[3][j]);
+	  pthread_barrier_wait(&wbar);	//14
+	  prepare_id0();
+	  pthread_barrier_wait(&wbar);	//15
+	  for (int j = 0; j < pms->n; j++) rhq[4][j] = 0.5I*(2*dQ[j]*U[j] - arr->Q[j]*dU[j]);
+	  pthread_barrier_wait(&wbar);	//16
+	  for (int j = 0; j < pms->n; j++) arr->Q[j] = Q0[j] + ((pms->dt)/8.)*(9.*rhq[1][j]-3.*rhq[2][j]-6.*rhq[3][j]+4.*rhq[4][j]);
+	  pthread_barrier_wait(&wbar);	//17
+	  prepare_id0();
+	  pthread_barrier_wait(&wbar);	//18
+	  for (int j = 0; j < pms->n; j++) rhq[5][j] = 0.5I*(2*dQ[j]*U[j] - arr->Q[j]*dU[j]);
+	  pthread_barrier_wait(&wbar);	//19
+	  for (int j = 0; j < pms->n; j++) arr->Q[j] = Q0[j] + ((pms->dt)/44.)*(9.*rhq[0][j]-36.*rhq[1][j]+63.*rhq[2][j]+72.*rhq[3][j]-64.*rhq[5][j]);
+	  pthread_barrier_wait(&wbar);	//20
+	  prepare_id0();
+	  pthread_barrier_wait(&wbar);	//21
+	  for (int j = 0; j < pms->n; j++) {
+	    rhq[6][j] = 0.5I*(2*dQ[j]*U[j] - arr->Q[j]*dU[j]);
+	    aux[0][j] = (Q0[j] + ((pms->dt)/120.)*(11.*(rhq[0][j] + rhq[6][j]) + 81.*(rhq[2][j]+rhq[3][j]) -32.*(rhq[4][j]+rhq[5][j]))   )/(pms->n);
+	  }
+          fftw_execute(fwd_dft0);
+	  memset(&aux[0][1], 0, sizeof(fftw_complex)*(pms->n)/2);
+          fftw_execute(bwd_dft0);
+ 	  memcpy(arr->Q, aux[0], sizeof(fftw_complex)*(pms->n));
+	  pthread_barrier_wait(&wbar);	//22
+	  mm += 1;
+	  pthread_barrier_wait(&wbar);	//23
+	}
+
+}
+
+void * pthread_id1_rk6(void *arg) {
+	char str[80];
+	long int nn = 0;
+	// process arrays for V in RK6
+
+	save_ascii(pms, arr, "data/out000.txt");
+	pthread_barrier_wait(&wbar);	//1
+	while (nn < pms->max_steps) {
+	  memcpy(V0, arr->V, sizeof(fftw_complex)*(pms->n));
+	  pthread_barrier_wait(&wbar);	//2
+	  prepare_id1();
+	  pthread_barrier_wait(&wbar);	//3
+  	  for (int j = 0; j < pms->n; j++) rhv[0][j] = 1.I*(U[j]*dV[j] - B[j]*(arr->Q[j])*(arr->Q[j])) + (pms->g)*((arr->Q[j])*(arr->Q[j]) - 1.); 
+	  pthread_barrier_wait(&wbar);	//4
+  	  for (int j = 0; j < pms->n; j++) arr->V[j] = V0[j] + ((pms->dt)/3.)*rhv[0][j]; 
+	  pthread_barrier_wait(&wbar);	//5
+	  prepare_id1();
+	  pthread_barrier_wait(&wbar);	//6
+	  for (int j = 0; j < pms->n; j++) rhv[1][j] = 1.I*(U[j]*dV[j] - B[j]*(arr->Q[j])*(arr->Q[j])) + (pms->g)*((arr->Q[j])*(arr->Q[j]) - 1.);
+	  pthread_barrier_wait(&wbar);	//7
+	  for (int j = 0; j < pms->n; j++) arr->V[j] = V0[j] + (2.*(pms->dt)/3.)*rhv[1][j]; 
+	  pthread_barrier_wait(&wbar);	//8
+	  prepare_id1();
+	  pthread_barrier_wait(&wbar);	//9
+	  for (int j = 0; j < pms->n; j++) rhv[2][j] = 1.I*(U[j]*dV[j] - B[j]*(arr->Q[j])*(arr->Q[j])) + (pms->g)*((arr->Q[j])*(arr->Q[j]) - 1.);
+	  pthread_barrier_wait(&wbar);	//10
+	  for (int j = 0; j < pms->n; j++) arr->V[j] = V0[j] + ((pms->dt)/12.)*(rhv[0][j]+4.*rhv[1][j]-rhv[2][j]); 
+	  pthread_barrier_wait(&wbar);	//11
+	  prepare_id1();
+	  pthread_barrier_wait(&wbar);	//12
+	  for (int j = 0; j < pms->n; j++) rhv[3][j] = 1.I*(U[j]*dV[j] - B[j]*(arr->Q[j])*(arr->Q[j])) + (pms->g)*((arr->Q[j])*(arr->Q[j]) - 1.);
+	  pthread_barrier_wait(&wbar);	//13
+	  for (int j = 0; j < pms->n; j++) arr->V[j] = V0[j] + ((pms->dt)/16.)*(-rhv[0][j]+18.*rhv[1][j]-3.*rhv[2][j]-6.*rhv[3][j]);
+	  pthread_barrier_wait(&wbar);	//14
+	  prepare_id1();
+	  pthread_barrier_wait(&wbar);	//15
+	  for (int j = 0; j < pms->n; j++) rhv[4][j] = 1.I*(U[j]*dV[j] - B[j]*(arr->Q[j])*(arr->Q[j])) + (pms->g)*((arr->Q[j])*(arr->Q[j]) - 1.);
+	  pthread_barrier_wait(&wbar);	//16
+	  for (int j = 0; j < pms->n; j++) arr->V[j] = V0[j] + ((pms->dt)/8.)*(9.*rhv[1][j]-3.*rhv[2][j]-6.*rhv[3][j]+4.*rhv[4][j]);
+	  pthread_barrier_wait(&wbar);	//17
+	  prepare_id1();
+	  pthread_barrier_wait(&wbar);	//18
+	  for (int j = 0; j < pms->n; j++) rhv[5][j] = 1.I*(U[j]*dV[j] - B[j]*(arr->Q[j])*(arr->Q[j])) + (pms->g)*((arr->Q[j])*(arr->Q[j]) - 1.);
+	  pthread_barrier_wait(&wbar);	//19
+	  for (int j = 0; j < pms->n; j++) arr->V[j] = V0[j] + ((pms->dt)/44.)*(9.*rhv[0][j]-36.*rhv[1][j]+63.*rhv[2][j]+72.*rhv[3][j]-64.*rhv[5][j]);
+	  pthread_barrier_wait(&wbar);	//20
+	  prepare_id1();
+	  pthread_barrier_wait(&wbar);	//21
+
+	  for (int j = 0; j < pms->n; j++) {
+	    rhv[6][j] = 1.I*(U[j]*dV[j] - B[j]*(arr->Q[j])*(arr->Q[j])) + (pms->g)*((arr->Q[j])*(arr->Q[j]) - 1.);
+	    aux[1][j] = (V0[j] + ((pms->dt)/120.)*(11.*(rhv[0][j] + rhv[6][j]) + 81.*(rhv[2][j]+rhv[3][j]) -32.*(rhv[4][j]+rhv[5][j]))   )/(pms->n);
+	  }
+          fftw_execute(fwd_dft1);
+	  memset(&aux[1][1], 0, sizeof(fftw_complex)*(pms->n)/2);	
+          fftw_execute(bwd_dft1);
+	  memcpy(arr->V, aux[1], sizeof(fftw_complex)*(pms->n));
+	  pthread_barrier_wait(&wbar);	//22
+	  nn += 1;
+	  current.T = nn*(pms->dt);
+	  if ( (nn % (pms->step_io) ) == 0) {
+		pms->step_start = nn;
+	        sprintf(str, "data/out%03ld.txt", nn/(pms->step_io));
+		save_ascii(pms, arr, str);
+	 	printf("%ld\t%.9f\t%ld\tWriting binary restart ... ", nn, current.T, nn/(pms->step_io));
+		fflush(stdout);
+		save_binary_data(pms, arr, "restart.bin");
+		printf("Complete\n");
+		
+	  }
+
+	  pthread_barrier_wait(&wbar);	//23
+	}
+	printf("Final time threaded %.15f\n", current.T);
+	//sprintf(str, "data/out%03d.txt", nn/(pms->ionum));
+	//save_ascii(pms, arr, "rk6.txt"); // threaded iterations
+}
+
+//---------------------  Classical Runge Kutta 4
+
+void * pthread_id0(void *arg) {
+	long int mm = pms->step_start;
 	// process arrays for Q in RK4
 	pthread_barrier_wait(&wbar);
-	while (mm < nsteps) {
+	while (mm < pms->max_steps) {
 	  memcpy(Q0, arr->Q, sizeof(fftw_complex)*(pms->n));
 	  pthread_barrier_wait(&wbar);
 	  prepare_id0();
 	  pthread_barrier_wait(&wbar);
   	  for (int j = 0; j < pms->n; j++) rhq[0][j] = 0.5I*(2*dQ[j]*U[j] - arr->Q[j]*dU[j]);
 	  pthread_barrier_wait(&wbar);
-  	  for (int j = 0; j < pms->n; j++) arr->Q[j] = Q0[j] + 0.5*dt*rhq[0][j];
+  	  for (int j = 0; j < pms->n; j++) arr->Q[j] = Q0[j] + 0.5*(pms->dt)*rhq[0][j];
 	  pthread_barrier_wait(&wbar);
 	  prepare_id0();
 	  pthread_barrier_wait(&wbar);
 	  for (int j = 0; j < pms->n; j++) rhq[1][j] = 0.5I*(2*dQ[j]*U[j] - arr->Q[j]*dU[j]);
 	  pthread_barrier_wait(&wbar);
-	  for (int j = 0; j < pms->n; j++) arr->Q[j] = Q0[j] + 0.5*dt*rhq[1][j];
+	  for (int j = 0; j < pms->n; j++) arr->Q[j] = Q0[j] + 0.5*(pms->dt)*rhq[1][j];
 	  pthread_barrier_wait(&wbar);
 	  prepare_id0();
 	  pthread_barrier_wait(&wbar);
 	  for (int j = 0; j < pms->n; j++) rhq[2][j] = 0.5I*(2*dQ[j]*U[j] - arr->Q[j]*dU[j]);
 	  pthread_barrier_wait(&wbar);
-	  for (int j = 0; j < pms->n; j++) arr->Q[j] = Q0[j] + dt*rhq[2][j];
+	  for (int j = 0; j < pms->n; j++) arr->Q[j] = Q0[j] + (pms->dt)*rhq[2][j];
 	  pthread_barrier_wait(&wbar);
 	  prepare_id0();
 	  pthread_barrier_wait(&wbar);
 	  for (int j = 0; j < pms->n; j++) {
 	    rhq[3][j] = 0.5I*(2*dQ[j]*U[j] - arr->Q[j]*dU[j]);
-	    aux[0][j] = (Q0[j] + (dt/6.)*(rhq[0][j]+2.*rhq[1][j]+2.*rhq[2][j]+rhq[3][j]))/(pms->n);
+	    aux[0][j] = (Q0[j] + ((pms->dt)/6.)*(rhq[0][j]+2.*rhq[1][j]+2.*rhq[2][j]+rhq[3][j]))/(pms->n);
 	  }
           fftw_execute(fwd_dft0);
+	  lq = ref_criterion(aux[0]);
 	  memset(&aux[0][1], 0, sizeof(fftw_complex)*(pms->n)/2);
           fftw_execute(bwd_dft0);
  	  memcpy(arr->Q, aux[0], sizeof(fftw_complex)*(pms->n));
@@ -174,53 +348,63 @@ void * pthread_id0(void *arg) {
 }
 
 void * pthread_id1(void *arg) {
-	char str[80];
-	long int nn = 0;
-  	
-	// thread one does 5 DFTs, 
-	// processes dV, U and dU
+	char str[80], str_fourier[80];
+	long int nn = pms->step_start;
 	// process arrays for V in RK4
 
-	save_ascii(pms, arr, "data/out000.txt");
+	//printf("%ld\t%.9f\t%ld\n", nn, current.T, nn/(pms->step_io));
+	printf("T = %.9f\t%ld\n", current.T, nn/(pms->step_io));
+	sprintf(str, "data/Z%03ld.txt", nn/(pms->step_io));
+	sprintf(str_fourier, "data/Z%03ld.spc", nn/(pms->step_io));
+	restore_surface(str, str_fourier);
+
 	pthread_barrier_wait(&wbar);
-	while (nn < nsteps) {
+	while (nn < pms->max_steps) {
 	  memcpy(V0, arr->V, sizeof(fftw_complex)*(pms->n));
 	  pthread_barrier_wait(&wbar);
 	  prepare_id1();
 	  pthread_barrier_wait(&wbar);
   	  for (int j = 0; j < pms->n; j++) rhv[0][j] = 1.I*(U[j]*dV[j] - B[j]*(arr->Q[j])*(arr->Q[j])) + (pms->g)*((arr->Q[j])*(arr->Q[j]) - 1.); 
 	  pthread_barrier_wait(&wbar);
-  	  for (int j = 0; j < pms->n; j++) arr->V[j] = V0[j] + 0.5*dt*rhv[0][j]; 
+  	  for (int j = 0; j < pms->n; j++) arr->V[j] = V0[j] + 0.5*(pms->dt)*rhv[0][j]; 
 	  pthread_barrier_wait(&wbar);
 	  prepare_id1();
 	  pthread_barrier_wait(&wbar);
 	  for (int j = 0; j < pms->n; j++) rhv[1][j] = 1.I*(U[j]*dV[j] - B[j]*(arr->Q[j])*(arr->Q[j])) + (pms->g)*((arr->Q[j])*(arr->Q[j]) - 1.);
 	  pthread_barrier_wait(&wbar);
-	  for (int j = 0; j < pms->n; j++) arr->V[j] = V0[j] + 0.5*dt*rhv[1][j]; 
+	  for (int j = 0; j < pms->n; j++) arr->V[j] = V0[j] + 0.5*(pms->dt)*rhv[1][j]; 
 	  pthread_barrier_wait(&wbar);
 	  prepare_id1();
 	  pthread_barrier_wait(&wbar);
 	  for (int j = 0; j < pms->n; j++) rhv[2][j] = 1.I*(U[j]*dV[j] - B[j]*(arr->Q[j])*(arr->Q[j])) + (pms->g)*((arr->Q[j])*(arr->Q[j]) - 1.);
 	  pthread_barrier_wait(&wbar);
-	  for (int j = 0; j < pms->n; j++) arr->V[j] = V0[j] + dt*rhv[2][j]; 
+	  for (int j = 0; j < pms->n; j++) arr->V[j] = V0[j] + (pms->dt)*rhv[2][j]; 
 	  pthread_barrier_wait(&wbar);
 	  prepare_id1();
 	  pthread_barrier_wait(&wbar);
 	  for (int j = 0; j < pms->n; j++) {
 	    rhv[3][j] = 1.I*(U[j]*dV[j] - B[j]*(arr->Q[j])*(arr->Q[j])) + (pms->g)*((arr->Q[j])*(arr->Q[j]) - 1.);
-	    aux[1][j] = (V0[j] + (dt/6.)*(rhv[0][j]+2.*rhv[1][j]+2.*rhv[2][j]+rhv[3][j]))/(pms->n);
+	    aux[1][j] = (V0[j] + ((pms->dt)/6.)*(rhv[0][j]+2.*rhv[1][j]+2.*rhv[2][j]+rhv[3][j]))/(pms->n);
 	  }
           fftw_execute(fwd_dft1);
+	  lv = ref_criterion(aux[1]);
 	  memset(&aux[1][1], 0, sizeof(fftw_complex)*(pms->n)/2);
           fftw_execute(bwd_dft1);
 	  memcpy(arr->V, aux[1], sizeof(fftw_complex)*(pms->n));
 	  pthread_barrier_wait(&wbar);
 	  nn += 1;
-	  if ( (nn % (pms->ionum) ) == 0) {
-	        sprintf(str, "data/out%03ld.txt", nn/(pms->ionum));
-		save_ascii(pms, arr, str);
+	  current.T = nn*(pms->dt);
+	  if ( (nn % (pms->step_io) ) == 0) {
+		pms->step_start = nn;
+	        sprintf(str, "data/Z%03ld.txt", nn/(pms->step_io));
+	        sprintf(str_fourier, "data/Z%03ld.spc", nn/(pms->step_io));
+		restore_surface(str, str_fourier);
+	 	printf("T = %.9f\t%ld\t Max to min ratios Qk = %.5f\tVk = %.5f\tWriting binary restart ... ", current.T, nn/(pms->step_io), lq, lv);
+		fflush(stdout);
+		save_binary_data(pms, arr, "restart.bin");
+		printf("Complete\n");
 	  }
-	  current.T = nn*dt;
+
 	  pthread_barrier_wait(&wbar);
 	}
 	//printf("Final time threaded %.15f\n", current.T);
@@ -231,43 +415,43 @@ void * pthread_id1(void *arg) {
 
 void evolve_rk4_serial(){
 	char str[80];
-	long int nn = 0;
+	long int nn = pms->step_start;
 	long int mm = 0;
 	long int kk = 0;
 
 	//sprintf(str, "out%03d.txt", 0);
 	//save_ascii(pms, arr, str);
 	current.T = 0; 
-	while (nn < nsteps) {
+	while (nn < pms->max_steps) {
           memcpy(Q0, arr->Q, sizeof(fftw_complex)*(pms->n));
           memcpy(V0, arr->V, sizeof(fftw_complex)*(pms->n));
 	  proc_one_serial(pms, arr);
   	  for (int j = 0; j < pms->n; j++) {
 	    rhq[0][j] = 0.5I*(2*dQ[j]*U[j] - arr->Q[j]*dU[j]);
 	    rhv[0][j] = 1.I*(U[j]*dV[j] - B[j]*(arr->Q[j])*(arr->Q[j])) + (pms->g)*((arr->Q[j])*(arr->Q[j]) - 1.); 
-	    arr->Q[j] = Q0[j] + 0.5*dt*rhq[0][j];
-	    arr->V[j] = V0[j] + 0.5*dt*rhv[0][j]; 
+	    arr->Q[j] = Q0[j] + 0.5*(pms->dt)*rhq[0][j];
+	    arr->V[j] = V0[j] + 0.5*(pms->dt)*rhv[0][j]; 
 	  }
 	  proc_one_serial(pms, arr);	
 	  for (int j = 0; j < pms->n; j++) {
 	    rhq[1][j] = 0.5I*(2*dQ[j]*U[j] - arr->Q[j]*dU[j]);
 	    rhv[1][j] = 1.I*(U[j]*dV[j] - B[j]*(arr->Q[j])*(arr->Q[j])) + (pms->g)*((arr->Q[j])*(arr->Q[j]) - 1.);
-	    arr->Q[j] = Q0[j] + 0.5*dt*rhq[1][j];
-	    arr->V[j] = V0[j] + 0.5*dt*rhv[1][j]; 
+	    arr->Q[j] = Q0[j] + 0.5*(pms->dt)*rhq[1][j];
+	    arr->V[j] = V0[j] + 0.5*(pms->dt)*rhv[1][j]; 
 	  }
 	  proc_one_serial(pms, arr);	
 	  for (int j = 0; j < pms->n; j++) {
 	    rhq[2][j] = 0.5I*(2*dQ[j]*U[j] - arr->Q[j]*dU[j]);
 	    rhv[2][j] = 1.I*(U[j]*dV[j] - B[j]*(arr->Q[j])*(arr->Q[j])) + (pms->g)*((arr->Q[j])*(arr->Q[j]) - 1.);
-	    arr->Q[j] = Q0[j] + dt*rhq[2][j];
-	    arr->V[j] = V0[j] + dt*rhv[2][j]; 
+	    arr->Q[j] = Q0[j] + (pms->dt)*rhq[2][j];
+	    arr->V[j] = V0[j] + (pms->dt)*rhv[2][j]; 
 	  }
 	  proc_one_serial(pms, arr);	
 	  for (int j = 0; j < pms->n; j++) {
 	    rhq[3][j] = 0.5I*(2*dQ[j]*U[j] - arr->Q[j]*dU[j]);
 	    rhv[3][j] = 1.I*(U[j]*dV[j] - B[j]*(arr->Q[j])*(arr->Q[j])) + (pms->g)*((arr->Q[j])*(arr->Q[j]) - 1.);
-	    arr->Q[j] = Q0[j] + (dt/6.)*(rhq[0][j]+2.*rhq[1][j]+2.*rhq[2][j]+rhq[3][j]);
-	    arr->V[j] = V0[j] + (dt/6.)*(rhv[0][j]+2.*rhv[1][j]+2.*rhv[2][j]+rhv[3][j]);
+	    arr->Q[j] = Q0[j] + ((pms->dt)/6.)*(rhq[0][j]+2.*rhq[1][j]+2.*rhq[2][j]+rhq[3][j]);
+	    arr->V[j] = V0[j] + ((pms->dt)/6.)*(rhv[0][j]+2.*rhv[1][j]+2.*rhv[2][j]+rhv[3][j]);
 	  }
 	  memcpy(aux[0],arr->Q, sizeof(fftw_complex)*(pms->n));
 	  memcpy(aux[1],arr->V, sizeof(fftw_complex)*(pms->n));
@@ -284,7 +468,7 @@ void evolve_rk4_serial(){
 	  memcpy(arr->Q, aux[0], sizeof(fftw_complex)*(pms->n));
 	  memcpy(arr->V, aux[1], sizeof(fftw_complex)*(pms->n));
           nn += 1;	
-	  current.T = nn*dt;
+	  current.T = nn*(pms->dt);
          /* if (nn > mm) {
 	    kk += 1;
 	    sprintf(str, "out%03ld.txt", kk);
@@ -378,15 +562,8 @@ void read_pole_data(params_ptr in, work_ptr wrk) {
           B[j] += 0.5*(in->res1)*cexp(1.I*pi*(in->phs1))/cpow(sin(0.5*(u+pi-(in->sft1)*pi))-1.I*(in->pos1)*cos(0.5*(u+pi-(in->sft1)*pi)),2); 
 	  wrk->Q[j] = 1./csqrt(B[j]);
 	}
-	//  Operations testing
-	/*for (int j = 0; j < in->n; j++) {
-	  u = pi*(2.*j/(in->n) - 1);
-	  wrk->R[j] = 1. - 0.5*cexp(-1.I*u);
-	  wrk->V[j] = 2.*cexp(-2.I*u);
-	}*/
-	//
 	printf("Succesfully read Pade data for Stokes wave\n");
-	save_binary_data(in, wrk, "init.bin");
+	save_binary_data(in, wrk, "restart.bin");
 }
 
 
@@ -412,29 +589,15 @@ void init_fftw(params_ptr in, work_ptr wrk){
 	fftw_init_threads();
 	fftw_plan_with_nthreads(in->nthreads);
 	sprintf(str, "dft.fftw.%d", in->nthreads);
-        if (wflag == 1) {
-	  if (fftw_import_wisdom_from_filename(str)!=0) printf("Succesfully imported old Wisdom.\n");
-          fwd_dft0 = fftw_plan_dft_1d( in->n, aux[0], aux[0], FFTW_FORWARD, FMODE);
-          fwd_dft1 = fftw_plan_dft_1d( in->n, aux[1], aux[1], FFTW_FORWARD, FMODE);
-          fwd_dft2 = fftw_plan_dft_1d( in->n, aux[2], aux[2], FFTW_FORWARD, FMODE);
-          fwd_dft3 = fftw_plan_dft_1d( in->n, aux[3], aux[3], FFTW_FORWARD, FMODE);
-          bwd_dft0 = fftw_plan_dft_1d( in->n, aux[0], aux[0], FFTW_BACKWARD, FMODE);
-          bwd_dft1 = fftw_plan_dft_1d( in->n, aux[1], aux[1], FFTW_BACKWARD, FMODE);
-          bwd_dft2 = fftw_plan_dft_1d( in->n, aux[2], aux[2], FFTW_BACKWARD, FMODE);
-          bwd_dft3 = fftw_plan_dft_1d( in->n, aux[3], aux[3], FFTW_BACKWARD, FMODE);
-	  if(fftw_export_wisdom_to_filename(str)!=0) printf("Exported Wisdom to %s.\n", str);
-	} else {
-	  if (fftw_import_wisdom_from_filename(str)!=0) printf("Imported old Wisdom.\n");
-          fwd_dft0 = fftw_plan_dft_1d( in->n, aux[0], aux[0], FFTW_FORWARD, FMODE);
-          fwd_dft1 = fftw_plan_dft_1d( in->n, aux[1], aux[1], FFTW_FORWARD, FMODE);
-          fwd_dft2 = fftw_plan_dft_1d( in->n, aux[2], aux[2], FFTW_FORWARD, FMODE);
-          fwd_dft3 = fftw_plan_dft_1d( in->n, aux[3], aux[3], FFTW_FORWARD, FMODE);
-          bwd_dft0 = fftw_plan_dft_1d( in->n, aux[0], aux[0], FFTW_BACKWARD, FMODE);
-          bwd_dft1 = fftw_plan_dft_1d( in->n, aux[1], aux[1], FFTW_BACKWARD, FMODE);
-          bwd_dft2 = fftw_plan_dft_1d( in->n, aux[2], aux[2], FFTW_BACKWARD, FMODE);
-          bwd_dft3 = fftw_plan_dft_1d( in->n, aux[3], aux[3], FFTW_BACKWARD, FMODE);
-	  if(fftw_export_wisdom_to_filename(str)!=0) printf("Exported Wisdom to %s.\n", str);
-	}
+	fftw_import_wisdom_from_filename(str);
+	printf("Creating Wisdom .... ");
+	fflush(stdout);
+        fwd_dft0 = fftw_plan_dft_1d( in->n, aux[0], aux[0], FFTW_FORWARD, FMODE);
+        fwd_dft1 = fftw_plan_dft_1d( in->n, aux[1], aux[1], FFTW_FORWARD, FMODE);
+        bwd_dft0 = fftw_plan_dft_1d( in->n, aux[0], aux[0], FFTW_BACKWARD, FMODE);
+        bwd_dft1 = fftw_plan_dft_1d( in->n, aux[1], aux[1], FFTW_BACKWARD, FMODE);
+        bwd_dft2 = fftw_plan_dft_1d( in->n, aux[2], aux[2], FFTW_BACKWARD, FMODE);
+	if(fftw_export_wisdom_to_filename(str)!=0) printf("Complete.\nExported Wisdom to %s.\n", str);
 	if (benchflag == 1) {
 	  bench_rk4(in, wrk);
           err_msg("\n");
@@ -452,6 +615,7 @@ void init_arrays(params_ptr in, work_ptr wrk){
     k = fftw_malloc(sizeof(long int)*(in->n));
     B = fftw_malloc(sizeof(fftw_complex)*(in->n));
     U = fftw_malloc(sizeof(fftw_complex)*(in->n));
+    //Z = fftw_malloc(sizeof(fftw_complex)*(in->n));
     dU = fftw_malloc(sizeof(fftw_complex)*(in->n));
     dQ = fftw_malloc(sizeof(fftw_complex)*(in->n));
     dV = fftw_malloc(sizeof(fftw_complex)*(in->n));
@@ -504,29 +668,7 @@ void init_input(int *argc, char **argv, params_ptr in, work_ptr wrk) {
     		if (strcmp(param,"#benchft=") == 0) benchflag = atoi(value);
   	}
 	fclose(fh);
-  	FILE *fhlog = fopen("run.log","r"); 
-        if (fhlog == NULL) printf("Log from last run unavailable: Creating new DFT Plans.\n");
-	else {
-	  while (fgets(line, 80, fhlog)!=NULL) {
-            sscanf(line, "%s %s %s %s %s %s",  dm, dm, dm, lval, param, value);
-            strcat(lval, param);
-	    //sscanf (line, "%[^\n] %d", param, &num);
-            //printf("%s\n", lval);
-	    if (strcmp(lval,"atstart") == 0) n_old = atoi(value);
-	    if (strcmp(lval,"touse") == 0) threads_old = atoi(value);
-            //printf("Here nthreads_old = %d\nn_old = %d\n", threads_old, n_old);
-	  }
-  	  if (((in->nthreads)==threads_old)&&((in->n)==n_old)) {
-  	       	printf("Configuration of old run is compatible.\nAvailable Wisdom from previous run will be used.\n");
-               	//printf("Here nthreads_old = %d\nn_old = %d\n", threads_old, n_old);
-		wflag = 1;
-	  } else {
-		printf("Configuration of old run is different from input file. Creating new Wisdom.\n");
-	        wflag = 0;  
-          }
-          fclose(fhlog);  
-        }
-  	fhlog = fopen("run.log","w"); 
+  	FILE *fhlog = fopen("run.log","w"); 
 	fprintf(fhlog, "Run Name: %s\n", in->runname );
 	fprintf(fhlog, "Benchmark FFTs run (yes/no) %d\n", benchflag);
   	fprintf(fhlog, "Number Fourier modes at start\t%d\n", in->n );
@@ -549,33 +691,41 @@ void init_input(int *argc, char **argv, params_ptr in, work_ptr wrk) {
         fprintf(fhlog, "Perturbation in complex velocity V:\n");
 	fprintf(fhlog, "Magnitude of perturbation residue is %.5e\n", in->res2 );
   	fprintf(fhlog, "Phase of perturbation residue is %.5e\n", in->phs2);
-	fprintf(fhlog, "\nWisdom:\n");
-	if (wflag == 1) fprintf(fhlog, "Configuration of old run is compatible.\nAvailable Wisdom from previous run will be used.\n\n");
-	else fprintf(fhlog, "Log from last run unavailable: Creating new DFT Plans.\n\n");
 	fclose(fhlog);
         init_arrays(in, wrk);
         if ((in->rflag)&&(in->pflag)) err_msg("Make up your mind! Pick type of file to read.");
+	(in->current) = &current;
+	arr = wrk;  pms = in;
+  	n_order = pms->n_order;
+	long double t1;
+	long int nsteps;
 	if (in->pflag == 1) {
 		printf("Reading data from %s\n", in->resname);
 		read_pole_data(in, wrk);
+		current.T = 0;
+		t1 = ((pms->tmax)-current.T)/(pms->ionum);
+		pms->dt = (pms->cfl)/(pms->n);
+		nsteps = floor(t1/(pms->dt))+1;
+		pms->dt = t1/nsteps;
+		pms->cfl = (pms->n)*(pms->dt);
+		pms->step_start = 0;
+		pms->step_io = nsteps;
+		pms->max_steps = (pms->ionum)*nsteps;
 	}
 	if (in->rflag == 1) {
 		printf("Reading data from binary %s\n", in->resname);
 		read_binary_data(in, wrk, in->resname);
+		printf("Starting at t = %.9f\n", current.T);
+		printf("Starting step is %ld\nI/O every %ld steps\n", pms->step_start, pms->step_io);
+
 	}
-	(in->current) = &current;
-	arr = wrk;
-	pms = in;
-  	n_order = pms->n_order;
-	dt = (pms->cfl)/(pms->n);
-	long double t1;
-	nsteps = (floor((pms->tmax)/((pms->ionum)*dt)) + 1);
-	dt = (pms->tmax)/(nsteps*(pms->ionum));
-	nsteps = (pms->ionum)*nsteps;
-	pms->cfl = (pms->n)*dt;
+	//dt = pms->dt;
+	//nsteps = (pms->ionum)*nsteps;
+	printf("Total number of steps: %ld\nOutput every %ld steps\n", pms->max_steps, pms->step_io);
+
   	fhlog = fopen("run.log","a"); 
 	fprintf(fhlog, "Actual CFL value = %.9f\n", pms->cfl );
-	fprintf(fhlog, "Actual time-step = %.9f\n", dt );
+	fprintf(fhlog, "Actual time-step = %.9f\n", pms->dt );
 	fclose(fhlog);
 
 

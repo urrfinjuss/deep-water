@@ -10,14 +10,24 @@ static fftw_complex *a[4], *RS;
 
 void save_array(params_ptr in, fftw_complex *arr, char* fname) {
   fh_out = fopen(fname, "w");
-  fprintf(fh_out, "#1.u 2. re Array 3. im Array\n\n");
-  //fprintf(fh_out, "# Current time = %.16e\n\n", time);
+  fprintf(fh_out, "#1.u 2. re Z 3. im Z\n");
+  fprintf(fh_out, "# Current time = %.16e\n\n", (in->current)->T);
   for (int j = 0; j < in->n; j++) {
     fprintf(fh_out, "%.15e\t%.15e\t%.15e\n", 2*pi*j/(in->n) - pi, creal(arr[j]), cimag(arr[j]));
   }
   fclose(fh_out);
 }
 
+void save_fourier(params_ptr in, fftw_complex *arr, char* fname) {
+  fh_out = fopen(fname, "w");
+  fprintf(fh_out, "#1.k 2. abs(Rk)\n");
+  fprintf(fh_out, "# Current time = %.16e\n\n", (in->current)->T);
+  for (int j = 0; j < in->n; j++) {
+    if (j < (in->n)/2) fprintf(fh_out, "%d\t%.15e\n", j, cabs(arr[j]));
+    else fprintf(fh_out, "%d\t%.15e\n", j - (in->n), cabs(arr[j]));
+  }
+  fclose(fh_out);
+}
 
 void err_msg(char* str)
 {
@@ -29,6 +39,7 @@ void err_msg(char* str)
 void save_binary_data(params_ptr in, work_ptr wrk, char* fname) {
    fh_out = fopen(fname, "wb");
    fwrite(in, sizeof(struct params), 1, fh_out);
+   fwrite(&((in->current)->T), sizeof(double), 1, fh_out);
    fwrite(wrk->Q, sizeof(fftw_complex), in->n, fh_out);
    fwrite(wrk->V, sizeof(fftw_complex), in->n, fh_out);
    fclose(fh_out);
@@ -39,7 +50,12 @@ void read_binary_data(params_ptr in, work_ptr wrk, char* fname) {
    FILE *fhlog;
    int m;
    fh_out = fopen(fname, "r");
+   if (fh_out == NULL) {
+	printf("Cannot open file %s\n", fname);
+	err_msg("");
+   }
    m = fread(&dummy, sizeof(struct params), 1, fh_out);
+   m = fread(&((in->current)->T), sizeof(double), 1, fh_out);
    if (dummy.n == in->n) {
      m = fread(wrk->Q, sizeof(fftw_complex), dummy.n, fh_out); 
      m = fread(wrk->V, sizeof(fftw_complex), dummy.n, fh_out);
@@ -48,6 +64,11 @@ void read_binary_data(params_ptr in, work_ptr wrk, char* fname) {
      fprintf(fhlog, "\nRestart Log:\n");
      fprintf(fhlog, "Grid from binary restart matches input configuration\n");
      fclose(fhlog);
+     in->step_start = dummy.step_start;
+     in->step_io = dummy.step_io;
+     in->max_steps = dummy.max_steps;
+     in->cfl = dummy.cfl;
+     in->dt = dummy.dt;
    } else {
      fhlog = fopen("run.log","a");
      fprintf(fhlog, "\nRestart Log:\n");

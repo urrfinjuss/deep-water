@@ -38,6 +38,7 @@ typedef struct params {
 
   int n, k_cut, num_iter, e_n, ionum; 
   int ref_lvl, skip, pow;
+  long int step_start, max_steps, step_io;
   int stokes, d_cnt, d_poles;  
   int rflag, pflag;
   double g, cfl, c, tmax, t_skip, dt, nu, sigma;
@@ -55,6 +56,7 @@ extern void save_ascii(params_ptr in, work_ptr wrk, char* fname);
 extern void save_binary_data(params_ptr in, work_ptr wrk, char* fname);
 extern void read_binary_data(params_ptr in, work_ptr wrk, char* fname);
 extern void save_array(params_ptr in, fftw_complex *arr, char* fname);
+extern void save_fourier(params_ptr in, fftw_complex *arr, char* fname);
 
 //  --  ffts.c
 extern void init_input(int *argc, char **argv, params_ptr in, work_ptr wrk);
@@ -63,9 +65,10 @@ extern void init_fftw(params_ptr in, work_ptr wrk);
 extern void proc_one_serial();
 extern void* pthread_id0(void *arg);
 extern void* pthread_id1(void *arg);
-extern void* pthread_id2(void *arg);
+extern void* pthread_id0_rk6(void *arg);
+extern void* pthread_id1_rk6(void *arg);
 extern void evolve_rk4_serial();
-extern void evolve_rk4_threads();
+extern void evolve_rk_threads();
 extern void bench_fft(params_ptr in, work_ptr wrk);
 extern void bench_rk4();
 
