@@ -24,6 +24,8 @@ typedef struct work {
 } work, *work_ptr;
 
 typedef struct control {
+  long int incr_step;	
+  double t_stop;
   double T;  // current time
   double H;  // energy
   double M;  // mean level
@@ -38,7 +40,7 @@ typedef struct params {
 
   int n, k_cut, num_iter, e_n, ionum; 
   int ref_lvl, skip, pow;
-  long int step_start, max_steps, step_io;
+  long int step_start, max_steps, step_io, step_current;
   int stokes, d_cnt, d_poles;  
   int rflag, pflag;
   double g, cfl, c, tmax, t_skip, dt, nu, sigma;
@@ -71,6 +73,7 @@ extern void evolve_rk4_serial();
 extern void evolve_rk_threads();
 extern void bench_fft(params_ptr in, work_ptr wrk);
 extern void bench_rk4();
+extern void refine();
 
 
 extern void init(int *argc, char **argv, params_ptr in, work_ptr wrk) ;
@@ -103,7 +106,6 @@ extern double* array_enlarge_double (double *input_array, int Nold, int Nnew);
 extern fftw_complex* array_enlarge_complex(fftw_complex *input_array, int Nold, int Nnew);
 extern fftw_complex* expand_complex (fftw_complex *iarray, int Nnew);
 extern void expand_wrk(work_ptr wrk, int Nnew);
-extern int refine(work *wrk, params *in, int j);
 
 
 extern void init_prep(params_ptr in);

@@ -40,6 +40,7 @@ void save_binary_data(params_ptr in, work_ptr wrk, char* fname) {
    fh_out = fopen(fname, "wb");
    fwrite(in, sizeof(struct params), 1, fh_out);
    fwrite(&((in->current)->T), sizeof(double), 1, fh_out);
+   fwrite(&((in->current)->t_stop), sizeof(double), 1, fh_out);
    fwrite(wrk->Q, sizeof(fftw_complex), in->n, fh_out);
    fwrite(wrk->V, sizeof(fftw_complex), in->n, fh_out);
    fclose(fh_out);
@@ -56,6 +57,7 @@ void read_binary_data(params_ptr in, work_ptr wrk, char* fname) {
    }
    m = fread(&dummy, sizeof(struct params), 1, fh_out);
    m = fread(&((in->current)->T), sizeof(double), 1, fh_out);
+   m = fread(&((in->current)->t_stop), sizeof(double), 1, fh_out);
    if (dummy.n == in->n) {
      m = fread(wrk->Q, sizeof(fftw_complex), dummy.n, fh_out); 
      m = fread(wrk->V, sizeof(fftw_complex), dummy.n, fh_out);
@@ -64,6 +66,7 @@ void read_binary_data(params_ptr in, work_ptr wrk, char* fname) {
      fprintf(fhlog, "\nRestart Log:\n");
      fprintf(fhlog, "Grid from binary restart matches input configuration\n");
      fclose(fhlog);
+     in->step_current = dummy.step_start;
      in->step_start = dummy.step_start;
      in->step_io = dummy.step_io;
      in->max_steps = dummy.max_steps;
