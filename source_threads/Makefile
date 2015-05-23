@@ -4,24 +4,18 @@ FSW     = fsw.x
 C_FSW   = main_alt.c ffts_alt.c prep.c
 
 # Compilers
-CC      = gcc
-LINK    = gcc
-OPT     = -march=native -Ofast -ffast-math -std=gnu99 -Wpointer-arith -Wcast-align -fno-schedule-insns -fschedule-insns2 -fstrict-aliasing -funroll-loops -fprefetch-loop-arrays
+CC      = icc
+LINK    = icc
+OPT     = -xhost -ip -ipo -O3 -std=gnu99 
 #-----------------------------
 #generic
-
+#icc -I$TACC_FFTW3_INC -std=gnu99 main_alt.o prep.o ffts_alt.o -Wl,-rpath,$TACC_FFTW3_LIB  -L$TACC_FFTW3_LIB -lfftw3_threads -lfftw3
 LIB_MPI         =
-LIB_FFT         = -L/home/orange/fftw3libd/lib  -lfftw3_threads -lfftw3 -lm -lpthread
+LIB_FFT         = -Wl,-rpath,$(TACC_FFTW3_LIB)  -L$(TACC_FFTW3_LIB) -lfftw3_threads -lfftw3 -lm -lpthread
 INC_MPI         =
-INC_FFT         = -I/home/orange/fftw3libd/include
+INC_FFT         = -I$(TACC_FFTW3_INC)
 LIB_ADD         =
 
-ifeq ($(HOSTNAME), pequena)
-        LIB_MPI         =
-        LIB_FFT         = -lfftw3_mpi -lfftw3 -lm
-        INC_MPI         =
-        INC_FFT         =
-endif
 ifeq ($(HOSTNAME), metropolis.RR)
         LIB_MPI         =
         LIB_FFT         = -L/opt/local/fftw/3.3.1/mvapich2/1.7/intel/12.1/lib -lfftw3_mpi -lfftw3 -lm

@@ -10,7 +10,7 @@
 #include <time.h>
 
 #define pi 2*acos(0)
-#define FMODE FFTW_PATIENT
+#define FMODE FFTW_ESTIMATE
 
 typedef struct vector {
   fftw_complex *r, *v;
@@ -28,6 +28,9 @@ typedef struct control {
   double t_stop;
   double T;  // current time
   double H;  // energy
+  double S;  // surface tension potential energy
+  double P;  // gravity potential energy
+  double K;  // kinetic energy
   double M;  // mean level
   double Px;  // momentum x
   double Py;  // momentum y
