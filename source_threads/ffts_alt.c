@@ -15,7 +15,7 @@ static double lq, lv;
 static struct control current;
 static pthread_barrier_t wbar;
 static pthread_mutex_t tmut;
-static double thresh = 13.5;
+static double thresh = 13.0; // larger values for higher accuracy
 static int ref_flag = 0;
 //static long int nsteps;
 
@@ -23,7 +23,7 @@ static int ref_flag = 0;
 
 void refine() {
 	long int max_steps = pms->max_steps;
-	printf("Refinement at time %.9f on step %ld of %ld\n",current.T, pms->step_current, pms->max_steps);
+	printf("Refinement at time %.9f on step %ld of %ld with %d modes\n",current.T, pms->step_current, pms->max_steps, pms->n);
 	read_binary_data(pms, arr, "restart.bin");
 	pms->max_steps = max_steps;
 	printf("Restarting from %.9f on step %ld of %ld with double modes\n", current.T, pms->step_current, pms->max_steps);
@@ -138,7 +138,7 @@ double ref_criterion(fftw_complex *in) {
 	double qmin = 0;
 	for (int j = 0; j < win; j++) {
 	  qmax += cabs(in[(pms->n)-j-1]);
-	  qmin += cabs(in[(pms->n)/2+(pms->n)/32+j]);
+	  qmin += cabs(in[(pms->n)/2+(pms->n)/4+j]);
 	}
 	return log10(qmax/qmin);
 }
