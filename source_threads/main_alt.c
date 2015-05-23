@@ -11,7 +11,7 @@ int main(int argc, char** argv)
 
   init_input(&argc, argv, &ctrl, &wrk);
   init_fftw(&ctrl, &wrk);
-  save_ascii(&ctrl, &wrk, "data.txt");
+  //save_ascii(&ctrl, &wrk, "data.txt");
 
   
   evolve_rk_threads();
