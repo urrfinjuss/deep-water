@@ -17,10 +17,12 @@ INC_MPI         =
 INC_FFT         = -I$(TACC_FFTW3_INC)
 LIB_ADD         =
 
-ifeq ($(HOSTNAME), orange-machina)
-CC	=	gcc-4.8
-LINK	=	gcc-4.8
-OPT	=	-Ofast -std=gnu99
+
+ifeq "$(HOSTNAME)" "orange-machina"
+	CC=gcc-4.8
+	LINK=gcc-4.8
+	OPT=-Ofast -std=gnu99
+	LIB_FFT	= -L/home/orange/
 endif
 
 #-----------------------------
@@ -32,6 +34,9 @@ LIB_FSW         = $(LIB_MPI) $(LIB_FFT) $(LIB_ADD)
 INC_FSW         = $(INC_MPI) $(INC_FFT)
 
 #-----------------------------
+
+all:
+	@echo $(HOSTNAME)
 
 default: fsw
 
