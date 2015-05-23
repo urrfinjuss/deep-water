@@ -16,6 +16,7 @@ static struct control current, starting;
 static pthread_barrier_t wbar;
 static pthread_mutex_t tmut;
 static double thresh = 11.;
+
 static int ref_flag = 0;
 //static long int nsteps;
 
