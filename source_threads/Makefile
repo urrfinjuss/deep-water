@@ -21,8 +21,9 @@ LIB_ADD         =
 ifeq "$(HOSTNAME)" "orange-machina"
 	CC=gcc-4.8
 	LINK=gcc-4.8
-	OPT=-Ofast -std=gnu99
-	LIB_FFT	= -L/home/orange/
+	OPT=-Ofast -flto -std=gnu99
+	LIB_FFT=-L/home/orange/usr/lib -lfftw3_threads -lfftw3 -lm -lpthread
+	INC_FFT=-I/home/orange/usr/include
 endif
 
 #-----------------------------
@@ -45,6 +46,7 @@ default: fsw
 
 
 fsw:
+	@echo $(HOSTNAME)
 	$(CC) $(OPT) $(DEF_FSW) $(INC_FSW) -c $(C_FSW)
 	$(LINK) $(OPT) $(OBJ_FSW) $(LIB_FSW) -o $(FSW)
 	cp fsw.x ../debug/fsw.x
