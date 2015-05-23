@@ -10,17 +10,17 @@ OPT     = -xhost -ip -ipo -O3 -std=gnu99
 #-----------------------------
 #generic
 #icc -I$TACC_FFTW3_INC -std=gnu99 main_alt.o prep.o ffts_alt.o -Wl,-rpath,$TACC_FFTW3_LIB  -L$TACC_FFTW3_LIB -lfftw3_threads -lfftw3
+
 LIB_MPI         =
 LIB_FFT         = -Wl,-rpath,$(TACC_FFTW3_LIB)  -L$(TACC_FFTW3_LIB) -lfftw3_threads -lfftw3 -lm -lpthread
 INC_MPI         =
 INC_FFT         = -I$(TACC_FFTW3_INC)
 LIB_ADD         =
 
-ifeq ($(HOSTNAME), metropolis.RR)
-        LIB_MPI         =
-        LIB_FFT         = -L/opt/local/fftw/3.3.1/mvapich2/1.7/intel/12.1/lib -lfftw3_mpi -lfftw3 -lm
-        INC_MPI         =
-        INC_FFT         =
+ifeq ($(HOSTNAME), orange-machina)
+CC	=	gcc-4.8
+LINK	=	gcc-4.8
+OPT	=	-Ofast -std=gnu99
 endif
 
 #-----------------------------
