@@ -167,9 +167,9 @@ void refine() {
 }
 
 double ref_criterion(fftw_complex *in) {
-	int win = 16;	
-	double qmax = 0;
-	double qmin = 0;
+	int win = 8;	
+	double qmax = 1.;
+	double qmin = 0.;
 	for (int j = 0; j < win; j++) {
 	  qmax += cabs(in[(pms->n)-j-1]);
 	  qmin += cabs(in[(pms->n)/2+(pms->n)/4+j]);

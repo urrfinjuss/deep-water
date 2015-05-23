@@ -21,7 +21,7 @@ LIB_ADD         =
 ifeq "$(HOSTNAME)" "orange-machina"
 	CC=gcc-4.8
 	LINK=gcc-4.8
-	OPT=-Ofast -flto -std=gnu99
+	OPT=-Ofast -flto -ffast-math -std=gnu99
 	LIB_FFT=-L/home/orange/usr/lib -lfftw3_threads -lfftw3 -lm -lpthread
 	INC_FFT=-I/home/orange/usr/include
 endif
