@@ -58,7 +58,7 @@ void compute_kinetic() {
 	for (int j = 0; j < pms->n; j++) {
 	  current.K += cimag(aux[3][j])*creal(aux[2][j]);
 	}
-	current.K = -2.*pi*(current.K);
+	current.K = -pi*(current.K);
 }
 
 void refine() {
@@ -207,9 +207,10 @@ void restore_surface(char *fname1, char *fname2) {
         }
 
 
-
-	fprintf(fhtime, "%.15e\t%.15e\t%.15e\t%.15e\n", current.T, current.K - starting.K, current.P - starting.P,
-			 current.S - starting.S);
+	printf("%.15e\t%.15e\t%.15e\t%.15e\t%.15e\n", current.T, current.K, current.P ,
+			 current.S, current.K + current.P + current.S);
+	fprintf(fhtime, "%.15e\t%.15e\t%.15e\t%.15e\t%.15e\n", current.T, current.K, current.P ,
+			 current.S, current.K + current.P + current.S);
 	fclose(fhtime);
 }
 
@@ -326,6 +327,7 @@ void prepare_id1() {
 	}
         fftw_execute(fwd_dft1);
 	memset(&aux[1][1], 0, sizeof(fftw_complex)*(pms->n)/2);
+	aux[1][0] = 0.5*aux[1][0]; // bug was here
 	for (int j = 0; j < pms->n; j++) {
 	  aux[1][j] = aux[1][j]/(pms->n);
 	  aux[2][j] = 1.I*k[j]*aux[1][j];
@@ -625,8 +627,8 @@ void read_pole_data(params_ptr in, work_ptr wrk) {
 	  wrk->V[j] = 1.I*(in->c)*(1. - 1./B[j]);
           B[j] += 0.5*(in->res1)*cexp(1.I*pi*(in->phs1))/cpow(sin(0.5*(u+pi-(in->sft1)*pi))-1.I*(in->pos1)*cos(0.5*(u+pi-(in->sft1)*pi)),2); 
 	  //override for testing conservation laws
-	  //B[j] = 1. - 1.I*cexp(-1.I*u);
-	  //wrk->V[j] = cexp(-1.I*u);
+	  //B[j] = 1. - 0.1I*cexp(-1.I*u);
+	  //wrk->V[j] = 0.1*cexp(-1.I*u);
 	  wrk->Q[j] = 1./csqrt(B[j]);
 	}
         FILE *fhlog = fopen("run.log","a");
